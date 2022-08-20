@@ -3,38 +3,46 @@ mod files;
 use clap::Parser;
 use std::path::PathBuf;
 use std::path::Path;
+use crate::cli::Cli;
 
-#[derive(Parser)]
-struct Cli {
-    group: String,
-    name: String,
-    #[clap(default_value = "~/IdeaProjects")]
-    dir: PathBuf,
-    kotlin: bool,
+mod cli {
+    use clap::Parser;
+    use std::path::PathBuf;
+    use std::path::Path;
+    #[derive(Parser)]
+    pub struct Cli {
+        pub group: String,
+        pub name: String,
+        #[clap(default_value = "~/IdeaProjects")]
+        pub dir: PathBuf,
+        pub kotlin: bool,
+    }
 
-
-}
-
-impl Cli {
-    fn change_defaults(self) -> Self {
-        let path_str = self.dir.as_path().to_str().unwrap();
-        Self {
-            group: self.group,
-            dir: if path_str == "~/IdeaProjects" { push_self(&mut dirs::home_dir().unwrap(), "IdeaProjects")}
-            else {self.dir},
-            kotlin: false,
-            name: self.name
+    impl Cli {
+        pub fn change_defaults(self) -> Self {
+            let path_str = self.dir.as_path().to_str().unwrap();
+            Self {
+                dir: if path_str == "~/IdeaProjects" { push_self(&mut dirs::home_dir().unwrap(), "IdeaProjects")}
+                else {self.dir},
+                ..self
+            }
         }
     }
+    fn push_self(path: & mut PathBuf, app: & str) -> PathBuf {
+        path.push(app);
+        let mut x = PathBuf::new();
+        x.push(path);
+        return x;
+    }
 }
+
+
 fn main() {
     let args : Cli = Cli::change_defaults(Cli::parse());
     println!("{}",args.dir.as_path().to_str().unwrap())
 }
 
-fn push_self(path: & mut PathBuf, app: & str) -> PathBuf {
-    path.push(app);
-    let mut x = PathBuf::new();
-    x.push(path);
-    return x;
+
+fn create_project() {
+
 }
