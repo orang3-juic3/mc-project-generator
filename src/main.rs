@@ -4,6 +4,7 @@ use clap::Parser;
 use std::path::PathBuf;
 use std::path::Path;
 use crate::cli::Cli;
+use crate::files::CodeGen;
 
 mod cli {
     use clap::Parser;
@@ -13,20 +14,21 @@ mod cli {
     pub struct Cli {
         pub group: String,
         pub name: String,
+        #[clap(default_value = "1.19.2")]
+        pub version: String,
         #[clap(default_value = "~/IdeaProjects")]
         pub dir: PathBuf,
         pub kotlin: bool,
     }
 
     impl Cli {
-        pub fn change_defaults(self) -> Self {
+        pub fn change_path(&mut self) {
             let path_str = self.dir.as_path().to_str().unwrap();
-            Self {
-                dir: if path_str == "~/IdeaProjects" { push_self(&mut dirs::home_dir().unwrap(), "IdeaProjects")}
-                else {self.dir},
-                ..self
+            if path_str == "~/IdeaProjects" {
+                self.dir = push_self(&mut dirs::home_dir().unwrap(), "IdeaProjects")
             }
         }
+
     }
     fn push_self(path: & mut PathBuf, app: & str) -> PathBuf {
         path.push(app);
@@ -38,11 +40,14 @@ mod cli {
 
 
 fn main() {
-    let args : Cli = Cli::change_defaults(Cli::parse());
-    println!("{}",args.dir.as_path().to_str().unwrap())
+    let mut args : Cli = Cli::parse();
+    args.change_path();
+    println!("{}",args.dir.as_path().to_str().unwrap());
+    create_project(args);
 }
 
 
-fn create_project() {
-
+fn create_project(args: Cli) {
+    let mut code = CodeGen::from(args);
+    code.release_ver();
 }
