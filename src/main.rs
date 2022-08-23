@@ -48,6 +48,6 @@ fn main() {
 
 
 fn create_project(args: Cli) {
-    let mut code = CodeGen::from(args);
+    let mut code = CodeGen::from(Box::new(args));
     code.release_ver();
 }
