@@ -1,16 +1,19 @@
 use crate::cli;
 use crate::cli::Cli;
 use regex::Regex;
-use chrono::{DateTime};
+use chrono::{DateTime, NaiveDateTime, ParseResult, ParseError};
+use std::cmp::Ordering;
+use chrono::format::ParseErrorKind;
+use std::rc::Rc;
 
 pub struct CodeGen {
     settings_gradle: Option<String>,
     build_gradle: Option<String>,
     release_ver: Option<String>,
-    cli: Box<Cli>,
+    cli: Rc<Cli>,
 }
 impl CodeGen {
-    pub fn from(cli: Box<Cli>) -> Self {
+    pub fn from(cli: Rc<Cli>) -> Self {
         Self {
             settings_gradle:None,
             build_gradle: None,
@@ -18,14 +21,16 @@ impl CodeGen {
             cli,
         }
     }
+
     pub fn settings_gradle(&mut self) -> &str {
         if let None = self.settings_gradle {
-            let mut skeleton = String::from(include_str!("skeleton/settings.gradle.kts"));
+            let mut skeleton = String::from(include_str!("skeleton/settings.gradle.txt"));
             skeleton.push_str(format!("{}", self.cli.name).as_str());
             self.settings_gradle = Some(skeleton);
         }
         self.release_ver.as_ref().unwrap()
     }
+
     pub fn release_ver(&mut self) -> &str{
         if let None = self.release_ver {
             let r = Regex::new(r"\d+\.(?P<v>\d+)(\.\d+(-SNAPSHOT)?)?").unwrap();
@@ -41,10 +46,15 @@ impl CodeGen {
                     }
                 }
                 false
-            });
-            // write regex for directory listings
+            }).collect();
+            let ver = Self::retrieve_newest_version(url, vers);
+            self.release_ver = if let Some(a) = ver {
+                Some(String::from(a))
+            } else {
+                panic!("Could not find matching dependency version for api version {}!", self.cli.version)
+            };
         }
-        ""
+        self.release_ver.as_ref().unwrap()
     }
 
     fn retrieve_api_versions<'a>(url: &'a str, content: &'a mut String) -> Vec<&'a str>{
@@ -65,11 +75,35 @@ impl CodeGen {
         versions
     }
 
-    fn retrieve_newest_version<'a>(url : &'a str, mut matching: Vec<&'a str>) -> &'a str {
-        matching.sort_by(|a,b| {
-            // regex date time out of link reformat to create date time then compare
+    fn retrieve_newest_version<'a, 't>(url : &'a str, matching: Vec<&'t str>) -> Option<&'t str> {
+        let mut mapped : Vec<(&'t str, i64)> = matching.into_iter().map(|a| {
+            let content = reqwest::blocking::get(format!("{}{}", url, a)).unwrap().text().unwrap();
+            let r = Regex::new(r"<td>([a-zA-Z\d:\s]+)</td>").unwrap();
+            let cap = r.captures_iter(&*content).next();
+            if cap.is_none() {
+                return (a, None);
+            }
+            //Sun Aug 21 03:07:41 UTC 2022 https://docs.rs/chrono/latest/chrono/format/strftime/
+            let res = NaiveDateTime::parse_from_str(&cap.unwrap()[1].trim(),"%a %b %d %H:%M:%S %Z %Y");
+            if res.is_err() {
+                return (a, None);
+            }
+            (a, Some(res.unwrap()))
+        }).filter_map(|it| {
+            if it.1.is_none() {
+                return None;
+            }
+            let date = it.1.unwrap();
+            Some((it.0, date.timestamp()))
+        }).collect();
+        mapped.sort_by(|(_,a), (_,b)| {
+            a.cmp(b)
         });
-        ""
+        return if let Some(a) = mapped.last() {
+            Some(&*a.0)
+        } else {
+            None
+        }
     }
 
 }
