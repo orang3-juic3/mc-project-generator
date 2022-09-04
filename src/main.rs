@@ -50,7 +50,7 @@ fn main() {
     args.change_path();
     println!("{}",args.dir.as_path().to_str().unwrap());
     create_project(Box::new(args));
-    crate::gradlecreator::Gra
+
 
 }
 
@@ -60,4 +60,5 @@ fn create_project(args: Box<Cli>) {
     let mut code = CodeGen::from(Rc::clone(&rc));
     println!("{}",code.release_ver());
     code.settings_gradle();
+    let gradle = Gradle::new(Rc::clone(&rc));
 }
