@@ -61,4 +61,5 @@ fn create_project(args: Box<Cli>) {
     println!("{}",code.release_ver());
     code.settings_gradle();
     let gradle = Gradle::new(Rc::clone(&rc));
+    dbg!(&gradle.path);
 }
