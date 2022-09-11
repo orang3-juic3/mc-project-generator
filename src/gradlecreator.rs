@@ -4,8 +4,13 @@ use std::path::{Path, PathBuf};
 use std::env;
 use regex::Regex;
 use std::process::{Command, Stdio};
-use std::io::Read;
+use std::io::{Read, Error, ErrorKind};
 use std::fs::DirEntry;
+use chrono::format::Parsed;
+use std::cmp::{Ordering, max};
+use std::convert::TryFrom;
+use std::string::ParseError;
+use std::num::ParseIntError;
 
 pub struct Gradle {
     cli: Rc<Cli>,
@@ -78,7 +83,8 @@ impl Gradle {
         gradles.push("dists");
         let re = Self::compile_gradle_regex();
         if gradles.is_dir() {
-            let mut dirs : Vec<(f64, PathBuf)>= gradles.read_dir().unwrap().filter_map(|it| {
+            type GradleIO = (Result<SemVer, std::io::Error>, PathBuf);
+            let mut dirs : Vec<GradleIO>= gradles.read_dir().unwrap().filter_map(|it| {
                 if it.is_ok() {
                     return Some(it.unwrap())
                 }
@@ -86,22 +92,117 @@ impl Gradle {
             }).filter_map(|it| {
                 let str_name = it.file_name();
                 dbg!(&str_name);
-                let x = re.captures(str_name.to_str()?).and_then(|it| {
-                    dbg!(&it.name("ver")?.as_str());
-                    Some(it.name("ver")?.as_str().parse::<f64>().ok()?)
+                let x = re.captures(str_name.to_str()?).and_then(|cap| {
+                    dbg!(&cap.name("ver")?.as_str());
+                    Some(SemVer::try_from(cap.name("ver")?.as_str()))
                 })?;
                 Some((x, it.path()))
             }).collect();
-            dirs.sort_by(|a,b| {
+            let mut sem_vers: Vec<(SemVer, PathBuf)>= Vec::new();
+            for i in dirs {
+                if i.0.is_err() {
+                    panic!("{}",i.0.err().unwrap())
+                }
+                sem_vers.push((i.0.unwrap(), i.1));
+            }
+            sem_vers.sort_by(|a,b| {
                 a.0.partial_cmp(&b.0).unwrap()
             });
-            dbg!(&dirs);
+            dbg!(&sem_vers);
+            if sem_vers.last().is_some() {
+                let path = sem_vers.pop().unwrap().1;
+                return Self {
+                    cli : Rc::clone(&cli),
+                    path
+                }
+            }
         }
-        panic!("t")
+        panic!("Could not find a gradle implementation!")
     }
 
     fn compile_gradle_regex() -> Regex {
         Regex::new(r"gradle-(?P<ver>[\d.]+)-(?:.+-)?(?:bin|all)").unwrap()
     }
 
+}
+
+#[derive(Debug)]
+pub struct SemVer {
+    vers: Vec<u16>,
+}
+
+impl TryFrom<&str> for SemVer {
+    type Error = std::io::Error;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        let vers_raw  : Vec<Result<u16, ParseIntError>>= value.split(".").map(|it| {
+            it.parse()
+        }).collect();
+        for i in &vers_raw {
+            if i.is_err() {
+                return Err(Error::new(ErrorKind::InvalidInput, i.as_ref().err().unwrap().clone()))
+            }
+        }
+        let vers = vers_raw.iter().map(|it| {
+            *(it.as_ref().unwrap())
+        }).collect();
+        Ok(Self {
+            vers
+        })
+    }
+}
+
+impl PartialEq<Self> for SemVer {
+    fn eq(&self, other: &Self) -> bool {
+        if let Some(order) = &self.partial_cmp(other) {
+            return match order {
+                Ordering::Less => { false }
+                Ordering::Equal => { true }
+                Ordering::Greater => { false }
+            }
+        }
+        false
+    }
+}
+
+impl PartialOrd for SemVer {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        let l1 = &self.vers;
+        let l2 = &other.vers;
+        for i in 0..max(l1.len(), l2.len()) {
+            if i >= l1.len() {
+                return Some(Ordering::Less);
+            }
+            if i >= l2.len() {
+                return Some(Ordering::Greater);
+            }
+            if l1[i] > l2[i] {
+                return Some(Ordering::Greater);
+            }
+            if l1[i] < l2[i] {
+                return Some(Ordering::Less);
+            } else {
+                if l1.len() == l2.len() && i == (l1.len() -1) {
+                    return Some(Ordering::Equal);
+                }
+            }
+        }
+        None
+    }
+
+    fn lt(&self, other: &Self) -> bool {
+        self.partial_cmp(other) == Some(Ordering::Less)
+    }
+
+    fn le(&self, other: &Self) -> bool {
+        self.partial_cmp(other) == Some(Ordering::Less) || self.partial_cmp(other) == Some(Ordering::Equal)
+    }
+
+    fn gt(&self, other: &Self) -> bool {
+        self.partial_cmp(other) == Some(Ordering::Greater)
+    }
+
+    fn ge(&self, other: &Self) -> bool {
+        self.partial_cmp(other) == Some(Ordering::Greater) || self.partial_cmp(other) == Some(Ordering::Equal)
+    }
 }

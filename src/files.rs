@@ -5,6 +5,9 @@ use chrono::{DateTime, NaiveDateTime, ParseResult, ParseError};
 use std::cmp::Ordering;
 use chrono::format::ParseErrorKind;
 use std::rc::Rc;
+use std::io::{Error, ErrorKind};
+use colored::Colorize;
+use std::borrow::Borrow;
 
 pub struct CodeGen {
     settings_gradle: Option<String>,
@@ -104,6 +107,26 @@ impl CodeGen {
         } else {
             None
         }
+
+    }
+
+
+    // bool = should_panic
+    pub fn prompt_empty(&self) -> Result<(), (bool,std::io::Error)> {
+        let path = &self.cli.dir;
+        let overwrite = *&self.cli.overwrite;
+        if !path.is_dir() && path.exists() {
+            return  Err((true, Error::new(ErrorKind::NotADirectory, format!("Target project path ({}) isn't a directory.", &self.cli.dir.to_string_lossy()))))
+        }
+        if path.exists()  {
+            let entries = path.read_dir().unwrap().count();
+            if entries > 0 {
+                if !overwrite {
+                    return Err((true, Error::new(ErrorKind::DirectoryNotEmpty, format!("Target project directory ({}) is not empty. Use the overwrite flag to ignore this.", &self.cli.dir.to_string_lossy()))));
+                }
+            }
+        }
+        Ok(())
     }
 
 }
