@@ -5,9 +5,16 @@ use chrono::{DateTime, NaiveDateTime, ParseResult, ParseError};
 use std::cmp::Ordering;
 use chrono::format::ParseErrorKind;
 use std::rc::Rc;
-use std::io::{Error, ErrorKind};
+use std::io::{Error, ErrorKind, Read, Write};
 use colored::Colorize;
 use std::borrow::Borrow;
+use crate::gradlecreator::Gradle;
+use std::process::{Command, Stdio};
+use std::ffi::{OsStr, OsString};
+use std::option::Option::Some;
+use std::any::Any;
+use std::sync::mpsc::{Sender, Receiver, RecvError};
+use std::sync::mpsc;
 
 pub struct CodeGen {
     settings_gradle: Option<String>,
@@ -18,7 +25,7 @@ pub struct CodeGen {
 impl CodeGen {
     pub fn from(cli: Rc<Cli>) -> Self {
         Self {
-            settings_gradle:None,
+            settings_gradle: None,
             build_gradle: None,
             release_ver: None,
             cli,
@@ -112,7 +119,7 @@ impl CodeGen {
 
 
     // bool = should_panic
-    pub fn prompt_empty(&self) -> Result<(), (bool,std::io::Error)> {
+    fn prompt_empty(&self) -> Result<(), (bool,std::io::Error)> {
         let path = &self.cli.dir;
         let overwrite = *&self.cli.overwrite;
         if !path.is_dir() && path.exists() {
@@ -127,6 +134,54 @@ impl CodeGen {
             }
         }
         Ok(())
+    }
+
+    pub fn gen_project(self, gradle: &mut Gradle) {
+        let prompt_res = self.prompt_empty();
+        if prompt_res.is_err() {
+            let x = prompt_res.err().unwrap();
+            if x.0 == true {
+                panic!("{}", x.1);
+            }
+            println!("{}","Warning: Target directory is not empty, however override flag is set, so continuing..".yellow());
+        }
+        if self.cli.dir.exists() {
+            std::fs::remove_dir_all(&self.cli.dir).unwrap();
+        }
+        std::fs::create_dir(&self.cli.dir).unwrap();
+        Gradle::gradle_exec_name();
+        let path = gradle.path.to_str();
+        let mut cmd = OsString::new();
+        #[cfg(target_os = "windows")]
+        cmd.push("cd /d ");
+        #[cfg(not(target_os = "windows"))]
+        cmd.push("cd ");
+        cmd.push(&self.cli.dir.as_os_str());
+        cmd.push(" && ");
+        if let Some(e) = path {
+            if e == "gradle" {
+                cmd.push("gradle");
+            }
+        } else {
+            cmd.push(gradle.path.as_os_str());
+        }
+        cmd.push(" init --type basic --no-daemon");
+        dbg!(&cmd);
+        let cmd= cmd.as_os_str();
+        let mut process = if cfg!(target_os = "windows") {
+            Command::new("cmd").args([OsStr::new("/C"), cmd]).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn()
+        } else {
+            Command::new("sh").args([OsStr::new("/C"), cmd]).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn()
+        }.unwrap();
+        let mut stdin = process.stdin.take().unwrap();
+        std::thread::spawn(move || {
+            stdin.write_all(b"2").unwrap();
+        });
+        let mut str = String::new();
+        process.stdout.take().unwrap().read_to_string(&mut str).unwrap();
+        println!("{}", str.as_str());
+        process.wait().unwrap();
+        ()
     }
 
 }

@@ -22,10 +22,7 @@ impl Gradle {
         if let Some(gr) = &cli.gradle_dist {
             let mut binary = gr.clone();
             if binary.is_dir() {
-                #[cfg(not(target_os = "windows"))]
-                let gr_str = "gradle";
-                #[cfg(target_os = "windows")]
-                let gr_str = "gradle.bat";
+                let gr_str = Self::gradle_exec_name();
                 binary.push(gr_str);
                 if binary.exists() && binary.is_file() {
                     /*dbg!(binary.as_os_str());
@@ -44,7 +41,7 @@ impl Gradle {
             }
         }
         let wait = if cfg!(target_os = "windows") {
-            Command::new("cmd").args(["/C", "gradlew --no-daemon -v"]).stdout(Stdio::piped()).spawn()
+            Command::new("cmd").args(["/C", "gradle --no-daemon -v"]).stdout(Stdio::piped()).spawn()
         } else {
             Command::new("sh").args(["-c", "gradle --no-daemon -v"]).stdout(Stdio::piped()).spawn()
         };
@@ -124,6 +121,13 @@ impl Gradle {
         Regex::new(r"gradle-(?P<ver>[\d.]+)-(?:.+-)?(?:bin|all)").unwrap()
     }
 
+    pub fn gradle_exec_name() -> &'static str {
+        #[cfg(not(target_os = "windows"))]
+        return "gradle";
+        #[cfg(target_os = "windows")]
+        return "gradle.bat";
+    }
+
 }
 
 #[derive(Debug)]
@@ -136,16 +140,15 @@ impl TryFrom<&str> for SemVer {
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         let vers_raw  : Vec<Result<u16, ParseIntError>>= value.split(".").map(|it| {
-            it.parse()
+            it.parse::<u16>()
         }).collect();
-        for i in &vers_raw {
+        let mut vers = Vec::new();
+        for i in vers_raw {
             if i.is_err() {
-                return Err(Error::new(ErrorKind::InvalidInput, i.as_ref().err().unwrap().clone()))
+                return Err(Error::new(ErrorKind::InvalidInput, i.err().unwrap()))
             }
+            vers.push(i.unwrap());
         }
-        let vers = vers_raw.iter().map(|it| {
-            *(it.as_ref().unwrap())
-        }).collect();
         Ok(Self {
             vers
         })

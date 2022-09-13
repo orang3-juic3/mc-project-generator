@@ -69,18 +69,8 @@ fn create_project(args: Box<Cli>) {
     let mut code = CodeGen::from(Rc::clone(&rc));
     println!("{}",code.release_ver());
     code.settings_gradle();
-    let gradle = Gradle::new(Rc::clone(&rc));
+    let mut gradle = Gradle::new(Rc::clone(&rc));
     dbg!(&gradle.path);
-    let prompt_res = code.prompt_empty();
-    if prompt_res.is_err() {
-        let x = prompt_res.err().unwrap();
-        if x.0 == true {
-            panic!("{}", x.1);
-        }
-        println!("{}","Warning: Target directory is not empty, however override flag is set, so continuing..".yellow());
-        std::fs::remove_dir_all()
-    }
-    std::fs::create_dir(&rc.dir).unwrap();
-
+    code.gen_project(&mut gradle);
     ()
 }
