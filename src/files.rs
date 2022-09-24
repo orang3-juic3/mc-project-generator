@@ -17,7 +17,6 @@ use std::sync::mpsc::{Sender, Receiver, RecvError};
 use std::sync::mpsc;
 use std::path::PathBuf;
 use std::fs::File;
-use tinytemplate::TinyTemplate;
 
 pub struct CodeGen {
     settings_gradle: Option<&'static str>,
@@ -58,7 +57,7 @@ impl CodeGen {
             else {"https://repo.papermc.io/service/rest/repository/browse/maven-public/io/papermc/paper/paper-api/"};
             let mut content = String::new();
             let vers = CodeGen::retrieve_api_versions(url, &mut content).into_iter().filter(|it| {
-                let x = it.split("-").next();
+                let x = (*it).split("-").next();
                 if let Some(v) = x {
                     if v == &*self.cli.version {
                         return true;
@@ -193,17 +192,24 @@ impl CodeGen {
         self.rm_gradle_file("build.gradle");
         self.rm_gradle_file("settings.gradle");
         let c = Rc::clone(&self.cli);
-        self.template_gradle_files(c);
+        let build_contents = self.template_gradle_files(c);
+        self.create_build_file("settings.gradle.kts",build_contents.0.as_str());
+        self.create_build_file("build.gradle.kts", build_contents.1.as_str());
+        std::fs::create_dir_all()
         ()
     }
 
-    fn template_gradle_files(mut self, cli: Rc<Cli>) {
-        let settings:&'static str = self.settings_gradle();
-        let mut tt = TinyTemplate::new();
-        tt.add_template("settings",settings);
-        tt.render("settings",&cli.name).unwrap();
-        let build = self.build_gradle();
+    fn template_gradle_files(mut self, cli: Rc<Cli>) -> (String, String) {
+        let mut settings = String::from(self.settings_gradle());
+        settings = settings.replace("{}", &cli.name);
+        let mut build = String::from(self.build_gradle());
+        build = build.replacen("{}", &*format!(r#"{}kotlin("jvm") version "1.6.21"{}"#, "\n    ", "\n"), 1);
+        build = build.replacen("{}", &cli.group,1);
+        build = build.replacen("{}", self.release_ver(),1);
+        build = build.replacen("{}", &*format!("{}.Main",self.cli.group), 1);
+        (settings, build)
     }
+
 
     fn rm_gradle_file(&self, file: &str) {
         let mut del_path = PathBuf::from(&self.cli.dir);
@@ -211,7 +217,7 @@ impl CodeGen {
         std::fs::remove_file(del_path);
     }
 
-    fn create_gradle_file(&self, name: &str, contents: &str) {
+    fn create_build_file(&self, name: &str, contents: &str) {
         let mut path = self.cli.dir.clone();
         path.push(name);
         let mut file = File::create(path).unwrap();
