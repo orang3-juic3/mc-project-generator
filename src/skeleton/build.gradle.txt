@@ -9,9 +9,9 @@ plugins {
     {}
 }
 
-group = "me.binky.freeze"
+group = {}
 version = "1.0.0"
-description = "Freeze plugin"
+description = ""
 
 java {
     // Configure the java toolchain. This allows gradle to auto-provision JDK 17 on systems that only have JDK 8 installed for example.
@@ -20,13 +20,11 @@ java {
 }
 
 dependencies {
-    paperDevBundle("1.19.2-R0.1-SNAPSHOT")
-    // https://mvnrepository.com/artifact/com.fasterxml.jackson.core/jackson-core
-    implementation("com.fasterxml.jackson.core:jackson-core:2.13.3")
-
+    paperDevBundle("{}")
 }
 
 tasks {
+
     // Configure reobfJar to run when invoking the build task
     assemble {
       dependsOn(reobfJar)
@@ -39,9 +37,11 @@ tasks {
       // See https://openjdk.java.net/jeps/247 for more information.
       options.release.set(17)
     }
+
     javadoc {
       options.encoding = Charsets.UTF_8.name() // We want UTF-8 for everything
     }
+
     processResources {
       filteringCharset = Charsets.UTF_8.name() // We want UTF-8 for everything
     }
@@ -60,6 +60,5 @@ bukkit {
     load = BukkitPluginDescription.PluginLoadOrder.STARTUP
     main = {}
     apiVersion = "1.19"
-    authors = listOf("binky")
-    this.commands.create("freeze")
+    authors = listOf("")
 }

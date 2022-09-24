@@ -15,13 +15,27 @@ use std::option::Option::Some;
 use std::any::Any;
 use std::sync::mpsc::{Sender, Receiver, RecvError};
 use std::sync::mpsc;
+use std::path::PathBuf;
+use std::fs::File;
+use tinytemplate::TinyTemplate;
 
 pub struct CodeGen {
-    settings_gradle: Option<String>,
-    build_gradle: Option<String>,
+    settings_gradle: Option<&'static str>,
+    build_gradle: Option<&'static str>,
     release_ver: Option<String>,
     cli: Rc<Cli>,
 }
+macro_rules! lazy {
+        ($name : ident, $path: literal) => {
+                pub fn $name(&mut self) -> &'static str {
+                    if let None = self.settings_gradle {
+                        let mut skeleton = include_str!($path);
+                        self.settings_gradle = Some(skeleton);
+                    }
+                    self.$name.unwrap()
+                }
+        };
+    }
 impl CodeGen {
     pub fn from(cli: Rc<Cli>) -> Self {
         Self {
@@ -31,17 +45,12 @@ impl CodeGen {
             cli,
         }
     }
+    // le cheese
+    lazy!(settings_gradle, "skeleton/settings.gradle.txt");
 
-    pub fn settings_gradle(&mut self) -> &str {
-        if let None = self.settings_gradle {
-            let mut skeleton = String::from(include_str!("skeleton/settings.gradle.txt"));
-            skeleton.push_str(format!("{}", self.cli.name).as_str());
-            self.settings_gradle = Some(skeleton);
-        }
-        self.release_ver.as_ref().unwrap()
-    }
+    lazy!(build_gradle, "skeleton/build.gradle.txt");
 
-    pub fn release_ver(&mut self) -> &str{
+    pub fn release_ver(&mut self) -> &str {
         if let None = self.release_ver {
             let r = Regex::new(r"\d+\.(?P<v>\d+)(\.\d+(-SNAPSHOT)?)?").unwrap();
             let ver : u16 = r.captures(&self.cli.version).unwrap().name("v").unwrap().as_str().parse().unwrap();
@@ -51,7 +60,7 @@ impl CodeGen {
             let vers = CodeGen::retrieve_api_versions(url, &mut content).into_iter().filter(|it| {
                 let x = it.split("-").next();
                 if let Some(v) = x {
-                    if v == self.cli.version {
+                    if v == &*self.cli.version {
                         return true;
                     }
                 }
@@ -67,7 +76,7 @@ impl CodeGen {
         self.release_ver.as_ref().unwrap()
     }
 
-    fn retrieve_api_versions<'a>(url: &'a str, content: &'a mut String) -> Vec<&'a str>{
+    fn retrieve_api_versions<'a>(url: &'a str, content: &'a mut String) -> Vec<&'a str> {
         content.push_str(&*reqwest::blocking::get(url).unwrap().text().unwrap());
         let r = Regex::new(r#"<td><a href="(?P<link>.+)/">(?P<v>.+)</a></td>"#).unwrap();
         let mut versions = Vec::new();
@@ -123,7 +132,7 @@ impl CodeGen {
         let path = &self.cli.dir;
         let overwrite = *&self.cli.overwrite;
         if !path.is_dir() && path.exists() {
-            return  Err((true, Error::new(ErrorKind::NotADirectory, format!("Target project path ({}) isn't a directory.", &self.cli.dir.to_string_lossy()))))
+            return Err((true, Error::new(ErrorKind::NotADirectory, format!("Target project path ({}) isn't a directory.", &self.cli.dir.to_string_lossy()))))
         }
         if path.exists()  {
             let entries = path.read_dir().unwrap().count();
@@ -181,7 +190,32 @@ impl CodeGen {
         process.stdout.take().unwrap().read_to_string(&mut str).unwrap();
         println!("{}", str.as_str());
         process.wait().unwrap();
+        self.rm_gradle_file("build.gradle");
+        self.rm_gradle_file("settings.gradle");
+        let c = Rc::clone(&self.cli);
+        self.template_gradle_files(c);
         ()
+    }
+
+    fn template_gradle_files(mut self, cli: Rc<Cli>) {
+        let settings:&'static str = self.settings_gradle();
+        let mut tt = TinyTemplate::new();
+        tt.add_template("settings",settings);
+        tt.render("settings",&cli.name).unwrap();
+        let build = self.build_gradle();
+    }
+
+    fn rm_gradle_file(&self, file: &str) {
+        let mut del_path = PathBuf::from(&self.cli.dir);
+        del_path.push(file);
+        std::fs::remove_file(del_path);
+    }
+
+    fn create_gradle_file(&self, name: &str, contents: &str) {
+        let mut path = self.cli.dir.clone();
+        path.push(name);
+        let mut file = File::create(path).unwrap();
+        file.write_all(contents.as_bytes());
     }
 
 }
