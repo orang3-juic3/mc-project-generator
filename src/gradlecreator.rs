@@ -38,7 +38,7 @@ impl Gradle {
             }
         }
         let wait = if cfg!(target_os = "windows") {
-            Command::new("cmd").args(["/C", "gradle --no-daemon -v"]).stdout(Stdio::piped()).spawn()
+            Command::new("cmd").args(["/C", "gradlet --no-daemon -v"]).stdout(Stdio::piped()).spawn()
         } else {
             Command::new("sh").args(["-c", "gradle --no-daemon -v"]).stdout(Stdio::piped()).spawn()
         };
@@ -85,9 +85,7 @@ impl Gradle {
                 None
             }).filter_map(|it| {
                 let str_name = it.file_name();
-                dbg!(&str_name);
                 let x = re.captures(str_name.to_str()?).and_then(|cap| {
-                    dbg!(&cap.name("ver")?.as_str());
                     Some(SemVer::try_from(cap.name("ver")?.as_str()))
                 })?;
                 Some((x, it.path()))
