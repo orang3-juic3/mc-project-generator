@@ -4,19 +4,15 @@ mod files;
 mod gradlecreator;
 
 use clap::Parser;
-use std::path::PathBuf;
-use std::path::Path;
 use crate::cli::Cli;
 use crate::files::CodeGen;
 use crate::gradlecreator::Gradle;
 use std::rc::Rc;
-use std::error::Error;
 use colored::Colorize;
 
 mod cli {
     use clap::Parser;
     use std::path::PathBuf;
-    use std::path::Path;
     #[derive(Parser)]
     #[clap(name = "Minecraft Project Generator")]
     #[clap(author = "zeddit")]
@@ -58,19 +54,16 @@ mod cli {
 fn main() {
     let mut args : Cli = Cli::parse();
     args.change_path();
-    println!("{}",args.dir.as_path().to_str().unwrap());
     create_project(Box::new(args));
-
-
 }
 
 fn create_project(args: Box<Cli>) {
     let rc : Rc<Cli> = Rc::new(*args);
     let mut code = CodeGen::from(Rc::clone(&rc));
-    println!("{}",code.release_ver());
-    code.settings_gradle();
+    println!("{} {}","Paper mvn dependency version:".cyan(), code.release_ver().cyan());
     let mut gradle = Gradle::new(Rc::clone(&rc));
-    dbg!(&gradle.path);
     code.gen_project(&mut gradle);
+    println!("{} {} {} {}", "Created new project".cyan(), rc.name.as_str().cyan().bold(), "in directory".cyan(),
+             rc.dir.to_string_lossy().into_owned().as_str().cyan().bold());
     ()
 }

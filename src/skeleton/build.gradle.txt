@@ -8,7 +8,7 @@ plugins {
     id("com.github.johnrengelman.shadow") version "7.1.2"{}
 }
 
-group = {}
+group = "{}"
 version = "1.0.0"
 description = ""
 
@@ -57,7 +57,7 @@ tasks {
 // Configure plugin.yml generation
 bukkit {
     load = BukkitPluginDescription.PluginLoadOrder.STARTUP
-    main = {}
+    main = "{}"
     apiVersion = "1.19"
     authors = listOf("")
 }

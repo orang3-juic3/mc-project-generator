@@ -1,19 +1,16 @@
 use std::rc::Rc;
 use crate::cli::Cli;
-use std::path::{Path, PathBuf};
-use std::env;
+use std::path::PathBuf;
 use regex::Regex;
 use std::process::{Command, Stdio};
-use std::io::{Read, Error, ErrorKind};
-use std::fs::DirEntry;
-use chrono::format::Parsed;
+use std::io::{Error, ErrorKind};
 use std::cmp::{Ordering, max};
 use std::convert::TryFrom;
-use std::string::ParseError;
 use std::num::ParseIntError;
+use std::ffi::OsString;
+use colored::*;
 
 pub struct Gradle {
-    cli: Rc<Cli>,
     pub path: PathBuf
 }
 
@@ -30,8 +27,8 @@ impl Gradle {
                                              .stdout(Stdio::piped())
                                              .arg("--no-daemon").spawn().unwrap();
                     println!("{}",String::from_utf8(child.wait_with_output().unwrap().stdout).unwrap());*/
+                    println!("{}","Using explicitly provided gradle!".cyan());
                     return Self {
-                        cli: Rc::clone(&cli),
                         path: binary
                     }
                 }
@@ -45,8 +42,8 @@ impl Gradle {
         } else {
             Command::new("sh").args(["-c", "gradle --no-daemon -v"]).stdout(Stdio::piped()).spawn()
         };
-        dbg!(&wait);
-        if let Ok(mut child) = wait {
+
+        if let Ok(child) = wait {
         /*if let Some(paths) = env::var_os("PATH") {
             let gradle : Vec<PathBuf> = env::split_paths(&paths).filter(|it| {
                     let mut sep = String::from(std::path::MAIN_SEPARATOR);
@@ -67,8 +64,8 @@ impl Gradle {
                 if output.status.code().is_some() && output.status.code().unwrap() == 0 {
                     let mut path = PathBuf::new();
                     path.push("gradle");
+                    println!("{}","Using gradle located in PATH!".cyan());
                     return Self {
-                        cli: Rc::clone(&cli),
                         path
                     }
                 }
@@ -81,7 +78,7 @@ impl Gradle {
         let re = Self::compile_gradle_regex();
         if gradles.is_dir() {
             type GradleIO = (Result<SemVer, std::io::Error>, PathBuf);
-            let mut dirs : Vec<GradleIO>= gradles.read_dir().unwrap().filter_map(|it| {
+            let dirs : Vec<GradleIO>= gradles.read_dir().unwrap().filter_map(|it| {
                 if it.is_ok() {
                     return Some(it.unwrap())
                 }
@@ -105,16 +102,41 @@ impl Gradle {
             sem_vers.sort_by(|a,b| {
                 a.0.partial_cmp(&b.0).unwrap()
             });
-            dbg!(&sem_vers);
-            if sem_vers.last().is_some() {
-                let path = sem_vers.pop().unwrap().1;
-                return Self {
-                    cli : Rc::clone(&cli),
-                    path
+            sem_vers.reverse();
+            for i in sem_vers {
+                let path = Self::has_valid_bin_dir(&i.1);
+                if let Some(path) = path  {
+                    println!("{} {}","Using autodetected gradle!".cyan(),path.as_os_str().to_string_lossy().into_owned().black()  );
+                    return Self {
+                        path
+                    }
                 }
             }
         }
-        panic!("Could not find a gradle implementation!")
+        panic!("Could not find a gradle distribution!")
+    }
+
+    fn has_valid_bin_dir(path: &PathBuf) -> Option<PathBuf> {
+        let entries= std::fs::read_dir(path).ok()?;
+        let sub_dirs : Vec<PathBuf> = entries
+            .filter_map(|it| Some(it.ok()?.path()))
+            .filter(|it| it.is_dir())
+            .collect();
+        for i in &sub_dirs {
+            if let Some(name) = i.file_name() {
+                if name == OsString::from("bin").as_os_str() {
+                    let mut p = i.clone();
+                    p.push(Self::gradle_exec_name());
+                    if p.is_file() {
+                        return Some(p)
+                    }
+                }
+            }
+        }
+        for i in sub_dirs {
+            return Self::has_valid_bin_dir(&i)
+        }
+        None
     }
 
     fn compile_gradle_regex() -> Regex {

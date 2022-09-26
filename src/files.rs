@@ -1,20 +1,13 @@
-use crate::cli;
 use crate::cli::Cli;
 use regex::Regex;
-use chrono::{DateTime, NaiveDateTime, ParseResult, ParseError};
-use std::cmp::Ordering;
-use chrono::format::ParseErrorKind;
+use chrono::NaiveDateTime;
 use std::rc::Rc;
 use std::io::{Error, ErrorKind, Read, Write};
 use colored::Colorize;
-use std::borrow::Borrow;
 use crate::gradlecreator::Gradle;
 use std::process::{Command, Stdio};
 use std::ffi::{OsStr, OsString};
 use std::option::Option::Some;
-use std::any::Any;
-use std::sync::mpsc::{Sender, Receiver, RecvError};
-use std::sync::mpsc;
 use std::path::PathBuf;
 use std::fs::File;
 
@@ -27,9 +20,9 @@ pub struct CodeGen {
 macro_rules! lazy {
         ($name : ident, $path: literal) => {
                 pub fn $name(&mut self) -> &'static str {
-                    if let None = self.settings_gradle {
-                        let mut skeleton = include_str!($path);
-                        self.settings_gradle = Some(skeleton);
+                    if let None = self.$name {
+                        let skeleton = include_str!($path);
+                        self.$name = Some(skeleton);
                     }
                     self.$name.unwrap()
                 }
@@ -133,18 +126,22 @@ impl CodeGen {
         if !path.is_dir() && path.exists() {
             return Err((true, Error::new(ErrorKind::NotADirectory, format!("Target project path ({}) isn't a directory.", &self.cli.dir.to_string_lossy()))))
         }
-        if path.exists()  {
+        if path.exists() {
             let entries = path.read_dir().unwrap().count();
             if entries > 0 {
+                let s = format!("Target project directory ({}) is not empty.", &self.cli.dir.to_string_lossy());
                 if !overwrite {
-                    return Err((true, Error::new(ErrorKind::DirectoryNotEmpty, format!("Target project directory ({}) is not empty. Use the overwrite flag to ignore this.", &self.cli.dir.to_string_lossy()))));
+                    return Err((true, Error::new(ErrorKind::DirectoryNotEmpty, format!("{} Use the overwrite flag to ignore this.", s))));
+                } else {
+                    let msg = format!("{}. However, the overwrite flag is set, so the program will continue.", s);
+                    println!("{}",msg.as_str().yellow());
                 }
             }
         }
         Ok(())
     }
 
-    pub fn gen_project(self, gradle: &mut Gradle) {
+    pub fn gen_project(mut self, gradle: &mut Gradle) {
         let prompt_res = self.prompt_empty();
         if prompt_res.is_err() {
             let x = prompt_res.err().unwrap();
@@ -158,7 +155,7 @@ impl CodeGen {
         }
         std::fs::create_dir(&self.cli.dir).unwrap();
         Gradle::gradle_exec_name();
-        let path = gradle.path.to_str();
+        let path = gradle.path.as_os_str();
         let mut cmd = OsString::new();
         #[cfg(target_os = "windows")]
         cmd.push("cd /d ");
@@ -166,16 +163,14 @@ impl CodeGen {
         cmd.push("cd ");
         cmd.push(&self.cli.dir.as_os_str());
         cmd.push(" && ");
-        if let Some(e) = path {
-            if e == "gradle" {
-                cmd.push("gradle");
-            }
+        if path == OsString::from("gradle").as_os_str() {
+            cmd.push("gradle");
         } else {
             cmd.push(gradle.path.as_os_str());
         }
         cmd.push(" init --type basic --no-daemon");
-        dbg!(&cmd);
         let cmd= cmd.as_os_str();
+        println!("{}","Running gradle command (this may take a few seconds!)".cyan());
         let mut process = if cfg!(target_os = "windows") {
             Command::new("cmd").args([OsStr::new("/C"), cmd]).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn()
         } else {
@@ -188,24 +183,38 @@ impl CodeGen {
         let mut str = String::new();
         process.stdout.take().unwrap().read_to_string(&mut str).unwrap();
         println!("{}", str.as_str());
+        println!("{}","Replacing files...".cyan());
         process.wait().unwrap();
         self.rm_gradle_file("build.gradle");
         self.rm_gradle_file("settings.gradle");
-        let c = Rc::clone(&self.cli);
-        let build_contents = self.template_gradle_files(c);
+        let build_contents = {
+            let c = Rc::clone(&self.cli);
+            self.template_gradle_files(c)
+        };
         self.create_build_file("settings.gradle.kts",build_contents.0.as_str());
         self.create_build_file("build.gradle.kts", build_contents.1.as_str());
-        std::fs::create_dir_all()
+        let mut src = PathBuf::from(&self.cli.dir);
+        src.push("src/main/java".replace("/",&*String::from(std::path::MAIN_SEPARATOR)));
+        src.push(&self.cli.group.replace(".", &*String::from(std::path::MAIN_SEPARATOR)));
+        std::fs::create_dir_all(src.as_path()).unwrap();
+        src.push("Main.java");
+        let mut f = File::create(src).unwrap();
+        let indent = "    ";
+        //xdddddddddddddddddddd
+        f.write_all(&*format!("package {};\n\nimport org.bukkit.plugin.java.JavaPlugin;\n\npublic final class \
+        Main extends JavaPlugin {{\n\n{}@Override\n{}public void onEnable() {{\n{}{}\n{}}}\n{}\n@Override\n{}public void \
+        onDisable() {{\n{}{}\n{}}}\n}}", &self.cli.group,indent,indent,indent,indent,
+                              indent,indent,indent,indent,indent,indent).as_bytes()).unwrap();
         ()
     }
 
-    fn template_gradle_files(mut self, cli: Rc<Cli>) -> (String, String) {
+    fn template_gradle_files(&mut self, cli: Rc<Cli>) -> (String, String) {
         let mut settings = String::from(self.settings_gradle());
         settings = settings.replace("{}", &cli.name);
         let mut build = String::from(self.build_gradle());
-        build = build.replacen("{}", &*format!(r#"{}kotlin("jvm") version "1.6.21"{}"#, "\n    ", "\n"), 1);
+        build = build.replacen("{}", &*format!(r#"{}kotlin("jvm") version "1.6.21""#, "\n    "), 1);
         build = build.replacen("{}", &cli.group,1);
-        build = build.replacen("{}", self.release_ver(),1);
+        build = build.replacen("{}", &*self.release_ver(), 1);
         build = build.replacen("{}", &*format!("{}.Main",self.cli.group), 1);
         (settings, build)
     }
@@ -214,14 +223,14 @@ impl CodeGen {
     fn rm_gradle_file(&self, file: &str) {
         let mut del_path = PathBuf::from(&self.cli.dir);
         del_path.push(file);
-        std::fs::remove_file(del_path);
+        std::fs::remove_file(del_path).unwrap();
     }
 
     fn create_build_file(&self, name: &str, contents: &str) {
         let mut path = self.cli.dir.clone();
         path.push(name);
         let mut file = File::create(path).unwrap();
-        file.write_all(contents.as_bytes());
+        file.write_all(contents.as_bytes()).unwrap();
     }
 
 }
